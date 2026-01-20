@@ -84,12 +84,13 @@ async def fetch(request: Request):
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
-            page = await browser.new_page()
 
-            await page.set_viewport_size({"width": 1280, "height": 720})
-            await page.set_user_agent(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                viewport={"width": 1280, "height": 720},
             )
+            
+            page = await context.new_page()
 
             async def on_request_failed(req):
                 nonlocal captured_code
