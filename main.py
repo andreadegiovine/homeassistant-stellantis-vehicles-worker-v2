@@ -117,14 +117,18 @@ async def fetch(request: Request):
                 "authorize": '#cvs_from input[type="submit"]',
             }
 
+            print("Waiting for login form...")
             await page.wait_for_selector(SELECTORS["email"], timeout=10000)
             await page.wait_for_selector(SELECTORS["password"], timeout=10000)
 
+            print("Filling credentials...")
             await page.type(SELECTORS["email"], email, delay=50)
             await page.type(SELECTORS["password"], password, delay=50)
 
+            print("Submitting login form...")
             await page.click(SELECTORS["submit"])
 
+            print("Waiting for redirects...")
             try:
                 await page.wait_for_navigation(
                     wait_until="domcontentloaded", timeout=20000
@@ -132,9 +136,13 @@ async def fetch(request: Request):
             except:
                 pass
 
+            print("Waiting for confirm form...")
             await page.wait_for_selector(SELECTORS["authorize"], timeout=10000)
+
+            print("Submitting confirm form...")
             await page.click(SELECTORS["authorize"])
 
+            print("Waiting for code capture...")
             for _ in range(20):
                 if captured_code:
                     break
