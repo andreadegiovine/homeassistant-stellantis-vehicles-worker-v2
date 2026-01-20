@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: stellantis-playwright-worker
+    env: docker
+    plan: free
+    autoDeploy: true
