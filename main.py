@@ -45,11 +45,6 @@ def http_response(message, status=400):
     if status == 200:
         body = {"code": message}
     else:
-        if "code: 429" in str(message):
-            message = (
-                "Remote service limit exceeded, please wait until tomorrow "
-                "or use the manual method"
-            )
         body = {"message": message, "code": status}
 
     print("Response:", message)
@@ -71,6 +66,8 @@ async def fetch(request: Request):
         url = payload.get("url")
         email = payload.get("email")
         password = payload.get("password")
+        timeout_page = payload.get("timeout_page", 30000)
+        timeout_input = payload.get("timeout_input", 20000)
 
         if not url or not email or not password:
             return http_response("Missing required params")
@@ -108,7 +105,7 @@ async def fetch(request: Request):
             page.on("requestfailed", on_request_failed)
 
             print("Navigating to login:", url)
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_page)
 
             SELECTORS = {
                 "email": '#gigya-login-form input[name="username"]',
@@ -118,8 +115,8 @@ async def fetch(request: Request):
             }
 
             print("Waiting for login form...")            
-            await page.wait_for_selector(SELECTORS["email"], timeout=20000)
-            await page.wait_for_selector(SELECTORS["password"], timeout=20000)
+            await page.wait_for_selector(SELECTORS["email"], timeout=timeout_input)
+            await page.wait_for_selector(SELECTORS["password"], timeout=timeout_input)
 
             print("Filling credentials...")
             await page.type(SELECTORS["email"], email, delay=50)
@@ -129,16 +126,16 @@ async def fetch(request: Request):
             await page.click(SELECTORS["submit"])
 
             print("Waiting for redirects...")
-            await page.wait_for_load_state("networkidle", timeout=30000)
+            await page.wait_for_load_state("networkidle", timeout=timeout_page)
 
             print("Waiting for confirm form...")
-            await page.wait_for_selector(SELECTORS["authorize"], timeout=20000)
+            await page.wait_for_selector(SELECTORS["authorize"], timeout=2000timeout_input0)
 
             print("Submitting confirm form...")
             await page.click(SELECTORS["authorize"])
 
             print("Waiting for code capture...")
-            for _ in range(30):
+            for _ in range((timeout_page/1000)):
                 if captured_code:
                     break
                 await asyncio.sleep(0.1)
