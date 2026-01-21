@@ -108,7 +108,7 @@ async def fetch(request: Request):
             page.on("requestfailed", on_request_failed)
 
             print("Navigating to login:", url)
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=40000)
 
             SELECTORS = {
                 "email": '#gigya-login-form input[name="username"]',
@@ -118,8 +118,8 @@ async def fetch(request: Request):
             }
 
             print("Waiting for login form...")            
-            await page.wait_for_selector(SELECTORS["email"], timeout=20000)
-            await page.wait_for_selector(SELECTORS["password"], timeout=20000)
+            await page.wait_for_selector(SELECTORS["email"], timeout=30000)
+            await page.wait_for_selector(SELECTORS["password"], timeout=30000)
 
             print("Filling credentials...")
             await page.type(SELECTORS["email"], email, delay=50)
@@ -130,20 +130,18 @@ async def fetch(request: Request):
 
             print("Waiting for redirects...")
             try:
-                await page.wait_for_navigation(
-                    wait_until="domcontentloaded", timeout=30000
-                )
+                await page.wait_for_navigation(wait_until="domcontentloaded", timeout=40000)
             except:
                 pass
 
             print("Waiting for confirm form...")
-            await page.wait_for_selector(SELECTORS["authorize"], timeout=20000)
+            await page.wait_for_selector(SELECTORS["authorize"], timeout=30000)
 
             print("Submitting confirm form...")
             await page.click(SELECTORS["authorize"])
 
             print("Waiting for code capture...")
-            for _ in range(30):
+            for _ in range(40):
                 if captured_code:
                     break
                 await asyncio.sleep(0.1)
