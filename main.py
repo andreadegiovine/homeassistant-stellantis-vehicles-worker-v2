@@ -9,35 +9,23 @@ app = FastAPI()
 process_start = None
 browser_start = None
 
-
 def log_start_process():
     global process_start
     process_start = time.perf_counter()
     print("Process start")
 
-
 def log_end_process():
     if process_start:
         print(f"Process end: {time.perf_counter() - process_start:.2f}s")
-
 
 def log_start_browser():
     global browser_start
     browser_start = time.perf_counter()
     print("Browser start")
 
-
 def log_end_browser():
     if browser_start:
         print(f"Browser end: {time.perf_counter() - browser_start:.2f}s")
-
-
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST",
-    "Access-Control-Allow-Headers": "Content-Type",
-}
-
 
 def http_response(message, status=400):
     log_end_process()
@@ -52,7 +40,11 @@ def http_response(message, status=400):
     return JSONResponse(
         status_code=status,
         content=body,
-        headers=CORS_HEADERS,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
     )
 
 
@@ -66,8 +58,8 @@ async def fetch(request: Request):
         url = payload.get("url")
         email = payload.get("email")
         password = payload.get("password")
-        timeout_page = payload.get("timeout_page", 30000)
-        timeout_input = payload.get("timeout_input", 20000)
+        timeout_page = payload.get("timeout_page", 40000)
+        timeout_input = payload.get("timeout_input", 30000)
 
         if not url or not email or not password:
             return http_response("Missing required params")
