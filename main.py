@@ -108,7 +108,7 @@ async def fetch(request: Request):
             page.on("requestfailed", on_request_failed)
 
             print("Navigating to login:", url)
-            await page.goto(url, wait_until="networkidle", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
 
             SELECTORS = {
                 "email": '#gigya-login-form input[name="username"]',
@@ -118,6 +118,13 @@ async def fetch(request: Request):
             }
 
             print("Waiting for login form...")
+
+            print("Current URL:", page.url)
+            html = await page.content()
+            print("PAGE HTML START ====================")
+            print(html[:5000])  # limita a 5000 caratteri per i log Render
+            print("PAGE HTML END ======================")
+            
             await page.wait_for_selector(SELECTORS["email"], timeout=10000)
             await page.wait_for_selector(SELECTORS["password"], timeout=10000)
 
@@ -131,7 +138,7 @@ async def fetch(request: Request):
             print("Waiting for redirects...")
             try:
                 await page.wait_for_navigation(
-                    wait_until="networkidle", timeout=20000
+                    wait_until="domcontentloaded", timeout=20000
                 )
             except:
                 pass
@@ -158,12 +165,6 @@ async def fetch(request: Request):
 
     except Exception as e:
         print("Error:", e)
-        if page:
-            print("Final URL:", page.url)
-            html = await page.content()
-            print("PAGE HTML START ====================")
-            print(html[:5000])  # limita a 5000 caratteri per i log Render
-            print("PAGE HTML END ======================")
         if browser:
             await browser.close()
             log_end_browser()
