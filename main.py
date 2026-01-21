@@ -76,7 +76,7 @@ async def fetch(request: Request):
                     "--disable-dev-shm-usage",
                     "--disable-gpu",
                     "--disable-extensions",
-                    #"--disable-background-networking",
+                    "--disable-background-networking",
                     "--disable-sync",
                     "--disable-translate",
                     "--disable-notifications",
@@ -90,15 +90,16 @@ async def fetch(request: Request):
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 viewport={"width": 1280, "height": 720},
-                #java_script_enabled=True,
-                #bypass_csp=True,
-                #ignore_https_errors=True,
+                java_script_enabled=True,
+                bypass_csp=True,
+                ignore_https_errors=True,
             )
             
             page = await context.new_page()
 
-            #await page.route("**/*", lambda route, request: (
-                #route.abort()
+            await page.route("**/*", lambda route, request: (
+                route.abort()
+                if request.resource_type in {"image", "media", "font"}
                 #if request.resource_type in {"image", "media", "font", "stylesheet"}
                 #or any(x in request.url for x in [
                 #    "google-analytics",
@@ -110,8 +111,8 @@ async def fetch(request: Request):
                 #    "segment",
                 #    "mixpanel"
                 #])
-                #else route.continue_()
-            #))
+                else route.continue_()
+            ))
 
             async def on_request_failed(req):
                 nonlocal captured_code
