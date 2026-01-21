@@ -108,7 +108,7 @@ async def fetch(request: Request):
             page.on("requestfailed", on_request_failed)
 
             print("Navigating to login:", url)
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
             SELECTORS = {
                 "email": '#gigya-login-form input[name="username"]',
@@ -117,16 +117,9 @@ async def fetch(request: Request):
                 "authorize": '#cvs_from input[type="submit"]',
             }
 
-            print("Waiting for login form...")
-
-            print("Current URL:", page.url)
-            html = await page.content()
-            print("PAGE HTML START ====================")
-            print(html[:5000])  # limita a 5000 caratteri per i log Render
-            print("PAGE HTML END ======================")
-            
-            await page.wait_for_selector(SELECTORS["email"], timeout=10000)
-            await page.wait_for_selector(SELECTORS["password"], timeout=10000)
+            print("Waiting for login form...")            
+            await page.wait_for_selector(SELECTORS["email"], timeout=20000)
+            await page.wait_for_selector(SELECTORS["password"], timeout=20000)
 
             print("Filling credentials...")
             await page.type(SELECTORS["email"], email, delay=50)
@@ -138,19 +131,19 @@ async def fetch(request: Request):
             print("Waiting for redirects...")
             try:
                 await page.wait_for_navigation(
-                    wait_until="domcontentloaded", timeout=20000
+                    wait_until="domcontentloaded", timeout=30000
                 )
             except:
                 pass
 
             print("Waiting for confirm form...")
-            await page.wait_for_selector(SELECTORS["authorize"], timeout=10000)
+            await page.wait_for_selector(SELECTORS["authorize"], timeout=20000)
 
             print("Submitting confirm form...")
             await page.click(SELECTORS["authorize"])
 
             print("Waiting for code capture...")
-            for _ in range(20):
+            for _ in range(30):
                 if captured_code:
                     break
                 await asyncio.sleep(0.1)
