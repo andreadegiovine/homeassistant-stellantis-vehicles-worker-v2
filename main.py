@@ -135,7 +135,7 @@ async def fetch(request: Request):
             await page.click(SELECTORS["authorize"])
 
             print("Waiting for code capture...")
-            for _ in range((timeout_page/1000)):
+            for _ in range(timeout_page // 1000):
                 if captured_code:
                     break
                 await asyncio.sleep(0.1)
