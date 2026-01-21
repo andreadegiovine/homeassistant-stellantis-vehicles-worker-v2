@@ -97,9 +97,8 @@ async def fetch(request: Request):
             
             page = await context.new_page()
 
-            await page.route("**/*", lambda route, request: (
-                route.abort()
-                if request.resource_type in {"image", "media", "font"}
+            #await page.route("**/*", lambda route, request: (
+                #route.abort()
                 #if request.resource_type in {"image", "media", "font", "stylesheet"}
                 #or any(x in request.url for x in [
                 #    "google-analytics",
@@ -111,8 +110,8 @@ async def fetch(request: Request):
                 #    "segment",
                 #    "mixpanel"
                 #])
-                else route.continue_()
-            ))
+                #else route.continue_()
+            #))
 
             async def on_request_failed(req):
                 nonlocal captured_code
