@@ -129,7 +129,7 @@ async def fetch(request: Request):
             await page.wait_for_load_state("networkidle", timeout=timeout_page)
 
             print("Waiting for confirm form...")
-            await page.wait_for_selector(SELECTORS["authorize"], timeout=2000timeout_input0)
+            await page.wait_for_selector(SELECTORS["authorize"], timeout=timeout_input)
 
             print("Submitting confirm form...")
             await page.click(SELECTORS["authorize"])
