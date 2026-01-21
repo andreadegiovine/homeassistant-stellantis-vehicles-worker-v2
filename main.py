@@ -71,15 +71,47 @@ async def fetch(request: Request):
 
             browser = await p.chromium.launch(
                 headless=True,
-                args=["--no-sandbox", "--disable-dev-shm-usage"]
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-sync",
+                    "--disable-translate",
+                    "--disable-notifications",
+                    "--disable-default-apps",
+                    "--mute-audio",
+                    "--no-first-run",
+                    "--no-zygote"
+                ]
             )
 
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 viewport={"width": 1280, "height": 720},
+                java_script_enabled=True,
+                bypass_csp=True,
+                ignore_https_errors=True,
             )
             
             page = await context.new_page()
+
+            await page.route("**/*", lambda route, request: (
+                route.abort()
+                if request.resource_type in {"image", "media", "font", "stylesheet"}
+                or any(x in request.url for x in [
+                    "google-analytics",
+                    "googletagmanager",
+                    "doubleclick",
+                    "facebook",
+                    "hotjar",
+                    "clarity",
+                    "segment",
+                    "mixpanel"
+                ])
+                else route.continue_()
+            ))
 
             async def on_request_failed(req):
                 nonlocal captured_code
@@ -118,7 +150,7 @@ async def fetch(request: Request):
             await page.click(SELECTORS["submit"])
 
             print("Waiting for redirects...")
-            await page.wait_for_load_state("networkidle", timeout=timeout_page)
+            await page.wait_for_load_state("domcontentloaded", timeout=timeout_page)
 
             print("Waiting for confirm form...")
             await page.wait_for_selector(SELECTORS["authorize"], timeout=timeout_input)
@@ -127,10 +159,10 @@ async def fetch(request: Request):
             await page.click(SELECTORS["authorize"])
 
             print("Waiting for code capture...")
-            for _ in range(timeout_page // 1000):
-                if captured_code:
-                    break
-                await asyncio.sleep(0.1)
+            await asyncio.wait_for(
+                asyncio.to_thread(lambda: captured_code),
+                timeout=timeout_page / 1000
+            )
 
             await browser.close()
             log_end_browser()
