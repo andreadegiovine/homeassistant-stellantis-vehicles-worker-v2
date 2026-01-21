@@ -100,16 +100,16 @@ async def fetch(request: Request):
             await page.route("**/*", lambda route, request: (
                 route.abort()
                 if request.resource_type in {"image", "media", "font", "stylesheet"}
-                or any(x in request.url for x in [
-                    "google-analytics",
-                    "googletagmanager",
-                    "doubleclick",
-                    "facebook",
-                    "hotjar",
-                    "clarity",
-                    "segment",
-                    "mixpanel"
-                ])
+                #or any(x in request.url for x in [
+                #    "google-analytics",
+                #    "googletagmanager",
+                #    "doubleclick",
+                #    "facebook",
+                #    "hotjar",
+                #    "clarity",
+                #    "segment",
+                #    "mixpanel"
+                #])
                 else route.continue_()
             ))
 
