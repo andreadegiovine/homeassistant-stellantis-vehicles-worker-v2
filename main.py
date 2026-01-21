@@ -88,11 +88,11 @@ async def fetch(request: Request):
             )
 
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 viewport={"width": 1280, "height": 720},
-                java_script_enabled=True,
-                bypass_csp=True,
-                ignore_https_errors=True,
+                #java_script_enabled=True,
+                #bypass_csp=True,
+                #ignore_https_errors=True,
             )
             
             page = await context.new_page()
