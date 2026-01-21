@@ -158,13 +158,13 @@ async def fetch(request: Request):
 
     except Exception as e:
         print("Error:", e)
-        if browser:
-            await browser.close()
-            log_end_browser()
         if page:
             print("Final URL:", page.url)
             html = await page.content()
             print("PAGE HTML START ====================")
             print(html[:5000])  # limita a 5000 caratteri per i log Render
             print("PAGE HTML END ======================")
+        if browser:
+            await browser.close()
+            log_end_browser()
         return http_response(str(e))
