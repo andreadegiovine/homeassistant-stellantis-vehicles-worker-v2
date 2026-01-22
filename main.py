@@ -20,7 +20,8 @@ def log_process(message):
     print(f"[{process_id}] {message}")
 
 def log_start_process():
-    global process_start
+    global process_id, process_start
+    process_id = uuid.uuid4().hex[:8]
     process_start = time.perf_counter()
     log_process("Process start")
 
@@ -103,19 +104,18 @@ def http_response(message, status=400):
 async def fetch(request: Request):
     log_start_process()
     context = None
+    captured_code = None
 
     try:
         payload = await request.json()
         url = payload.get("url")
         email = payload.get("email")
         password = payload.get("password")
-        timeout_page = payload.get("timeout_page", 40000)
-        timeout_input = payload.get("timeout_input", 40000)
+        timeout_page = payload.get("timeout_page", 50000)
+        timeout_input = payload.get("timeout_input", 50000)
 
         if not url or not email or not password:
             return http_response("Missing required params")
-
-        captured_code = None
 
         async with browser_lock:
             log_start_context()
@@ -210,4 +210,6 @@ async def fetch(request: Request):
         if context:
             await context.close()
             log_end_context()
+        if captured_code:
+            return http_response(captured_code, 200)
         return http_response(str(e))
