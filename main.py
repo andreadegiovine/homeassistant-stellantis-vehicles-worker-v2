@@ -16,32 +16,35 @@ playwright = None
 browser = None
 browser_lock = asyncio.Lock()
 
+def log_process(message):
+    print(f"[{process_id}] {message}")
+
 def log_start_process():
     global process_start
     process_start = time.perf_counter()
-    print(f"{process_id}| Process start")
+    log_process("Process start")
 
 def log_end_process():
     if process_start:
-        print(f"{process_id}| Process end: {time.perf_counter() - process_start:.2f}s")
+        log_process(f"Process end: {time.perf_counter() - process_start:.2f}s")
 
 def log_start_browser():
     global browser_start
     browser_start = time.perf_counter()
-    print(f"{process_id}| Browser start")
+    log_process("Browser start")
 
 def log_end_browser():
     if browser_start:
-        print(f"{process_id}| Browser end: {time.perf_counter() - browser_start:.2f}s")
+        log_process(f"Browser end: {time.perf_counter() - browser_start:.2f}s")
 
 def log_start_context():
     global context_start
     context_start = time.perf_counter()
-    print(f"{process_id}| Context start")
+    log_process("Context start")
 
 def log_end_context():
     if context_start:
-        print(f"{process_id}| Context end: {time.perf_counter() - context_start:.2f}s")
+        log_process(f"Context end: {time.perf_counter() - context_start:.2f}s")
 
 @app.on_event("startup")
 async def startup():
@@ -81,9 +84,9 @@ def http_response(message, status=400):
     if status == 200:
         body = {"code": message}
     else:
-        body = {"message": f"{message} ({process_id})", "code": status}
+        body = {"message": f"{message} [{process_id}]", "code": status}
 
-    print(f"{process_id}| Response:", message)
+    log_process(f"Response: {message}")
 
     return JSONResponse(
         status_code=status,
@@ -152,13 +155,13 @@ async def fetch(request: Request):
                         code = params.get("code")
                         if code:
                             captured_code = code
-                            print(f"{process_id}| Code captured!")
+                            log_process("Code captured!")
                     except Exception as e:
-                        print(f"{process_id}| URL parse error:", e)
+                        log_process(f"URL parse error: {e}")
 
             page.on("requestfailed", on_request_failed)
 
-            print(f"{process_id}| Navigating to login:", url)
+            log_process(f"Navigating to login: {url}")
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout_page)
 
             SELECTORS = {
@@ -168,27 +171,27 @@ async def fetch(request: Request):
                 "authorize": '#cvs_from input[type="submit"]',
             }
 
-            print(f"{process_id}| Waiting for login form...")
+            log_process("Waiting for login form...")
             await page.wait_for_selector(SELECTORS["email"], timeout=timeout_input)
             await page.wait_for_selector(SELECTORS["password"], timeout=timeout_input)
 
-            print(f"{process_id}| Filling credentials...")
+            log_process("Filling credentials...")
             await page.type(SELECTORS["email"], email, delay=50)
             await page.type(SELECTORS["password"], password, delay=50)
 
-            print(f"{process_id}| Submitting login form...")
+            log_process("Submitting login form...")
             await page.click(SELECTORS["submit"])
 
-            print(f"{process_id}| Waiting for redirects...")
+            log_process("Waiting for redirects...")
             await page.wait_for_load_state("domcontentloaded", timeout=timeout_page)
 
-            print(f"{process_id}| Waiting for confirm form...")
+            log_process("Waiting for confirm form...")
             await page.wait_for_selector(SELECTORS["authorize"], timeout=timeout_input)
 
-            print(f"{process_id}| Submitting confirm form...")
+            log_process("Submitting confirm form...")
             await page.click(SELECTORS["authorize"])
 
-            print(f"{process_id}| Waiting for code capture...")
+            log_process("Waiting for code capture...")
             await asyncio.wait_for(
                 asyncio.to_thread(lambda: captured_code),
                 timeout=timeout_page / 1000
@@ -203,7 +206,7 @@ async def fetch(request: Request):
             return http_response("Code not found")
 
     except Exception as e:
-        print(f"{process_id}| Error:", e)
+        log_process(f"Error: {e}")
         if context:
             await context.close()
             log_end_context()
