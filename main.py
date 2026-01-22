@@ -8,6 +8,11 @@ app = FastAPI()
 
 process_start = None
 browser_start = None
+context_start = None
+
+playwright = None
+browser = None
+browser_lock = asyncio.Lock()
 
 def log_start_process():
     global process_start
@@ -26,6 +31,47 @@ def log_start_browser():
 def log_end_browser():
     if browser_start:
         print(f"Browser end: {time.perf_counter() - browser_start:.2f}s")
+
+def log_start_context():
+    global context_start
+    context_start = time.perf_counter()
+    print("Context start")
+
+def log_end_context():
+    if context_start:
+        print(f"Context end: {time.perf_counter() - context_start:.2f}s")
+
+@app.on_event("startup")
+async def startup():
+    global playwright, browser
+    playwright = await async_playwright().start()
+    browser = await playwright.chromium.launch(
+        headless=True,
+        args=[
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-sync",
+            "--disable-translate",
+            "--disable-notifications",
+            "--disable-default-apps",
+            "--mute-audio",
+            "--no-first-run",
+            "--no-zygote"
+        ],
+    )
+    log_start_browser()
+
+@app.on_event("shutdown")
+async def shutdown():
+    global playwright, browser
+    if browser:
+        await browser.close()
+    if playwright:
+        await playwright.stop()
+    log_end_browser()
 
 def http_response(message, status=400):
     log_end_process()
@@ -51,7 +97,7 @@ def http_response(message, status=400):
 @app.post("/")
 async def fetch(request: Request):
     log_start_process()
-    browser = None
+    context = None
 
     try:
         payload = await request.json()
@@ -59,33 +105,15 @@ async def fetch(request: Request):
         email = payload.get("email")
         password = payload.get("password")
         timeout_page = payload.get("timeout_page", 40000)
-        timeout_input = payload.get("timeout_input", 30000)
+        timeout_input = payload.get("timeout_input", 40000)
 
         if not url or not email or not password:
             return http_response("Missing required params")
 
         captured_code = None
 
-        async with async_playwright() as p:
-            log_start_browser()
-
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-extensions",
-                    "--disable-background-networking",
-                    "--disable-sync",
-                    "--disable-translate",
-                    "--disable-notifications",
-                    "--disable-default-apps",
-                    "--mute-audio",
-                    "--no-first-run",
-                    "--no-zygote"
-                ]
-            )
+        async with browser_lock:
+            log_start_context()
 
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -94,7 +122,7 @@ async def fetch(request: Request):
                 bypass_csp=True,
                 ignore_https_errors=True,
             )
-            
+
             page = await context.new_page()
 
             #await page.route("**/*", lambda route, request: (
@@ -138,7 +166,7 @@ async def fetch(request: Request):
                 "authorize": '#cvs_from input[type="submit"]',
             }
 
-            print("Waiting for login form...")            
+            print("Waiting for login form...")
             await page.wait_for_selector(SELECTORS["email"], timeout=timeout_input)
             await page.wait_for_selector(SELECTORS["password"], timeout=timeout_input)
 
@@ -164,17 +192,19 @@ async def fetch(request: Request):
                 timeout=timeout_page / 1000
             )
 
-            await browser.close()
-            log_end_browser()
+            await context.close()
+            log_end_context()
 
-        if captured_code:
-            return http_response(captured_code, 200)
+            if captured_code:
+                return http_response(captured_code, 200)
 
-        return http_response("Code not found")
+            return http_response("Code not found")
+
+        return http_response("Already in use, try again later")
 
     except Exception as e:
         print("Error:", e)
-        if browser:
-            await browser.close()
-            log_end_browser()
+        if context:
+            await context.close()
+            log_end_context()
         return http_response(str(e))
