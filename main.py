@@ -7,36 +7,48 @@ import uuid
 
 app = FastAPI()
 
-process_id = uuid.uuid4().hex[:8]
+process_id = None
+browser_process_id = None
 process_start = None
 browser_start = None
 context_start = None
+
+debug = False
+ok_count = 0
+ko_count = 0
 
 playwright = None
 browser = None
 browser_lock = asyncio.Lock()
 
-def log_process(message):
-    print(f"[{process_id}] {message}")
+def log_process(message, log=debug):
+    if log:
+        print(f"[{process_id}] {message}")
 
 def log_start_process():
     global process_id, process_start
     process_id = uuid.uuid4().hex[:8]
     process_start = time.perf_counter()
-    log_process("Process start")
+    log_process("Process start", True)
 
 def log_end_process():
     if process_start:
-        log_process(f"Process end: {time.perf_counter() - process_start:.2f}s")
+        log_process(f"Process end: {time.perf_counter() - process_start:.2f}s", True)
+        log_process(f"Totals OK: {ok_count}", True)
+        log_process(f"Totals KO: {ko_count}", True)
 
 def log_start_browser():
-    global browser_start
+    global process_id, browser_process_id, browser_start
+    browser_process_id = uuid.uuid4().hex[:8]
+    process_id = browser_process_id
     browser_start = time.perf_counter()
-    log_process("Browser start")
+    log_process("Browser start", True)
 
 def log_end_browser():
+    global process_id
     if browser_start:
-        log_process(f"Browser end: {time.perf_counter() - browser_start:.2f}s")
+        process_id = browser_process_id
+        log_process(f"Browser end: {time.perf_counter() - browser_start:.2f}s", True)
 
 def log_start_context():
     global context_start
@@ -80,14 +92,17 @@ async def shutdown():
     log_end_browser()
 
 def http_response(message, status=400):
-    log_end_process()
+    global ok_count, ko_count
 
     if status == 200:
+        ok_count += 1
         body = {"code": message}
     else:
+        ko_count += 1
         body = {"message": f"{message} [{process_id}]", "code": status}
 
     log_process(f"Response: {message}")
+    log_end_process()
 
     return JSONResponse(
         status_code=status,
@@ -102,6 +117,7 @@ def http_response(message, status=400):
 
 @app.post("/")
 async def fetch(request: Request):
+    global debug
     log_start_process()
     context = None
     captured_code = None
@@ -113,6 +129,7 @@ async def fetch(request: Request):
         password = payload.get("password")
         timeout_page = payload.get("timeout_page", 50000)
         timeout_input = payload.get("timeout_input", 50000)
+        debug = payload.get("debug", False)
 
         if not url or not email or not password:
             return http_response("Missing required params")
@@ -206,7 +223,7 @@ async def fetch(request: Request):
             return http_response("Code not found")
 
     except Exception as e:
-        log_process(f"Error: {e}")
+        log_process(f"Error: {e}", True)
         if context:
             await context.close()
             log_end_context()
