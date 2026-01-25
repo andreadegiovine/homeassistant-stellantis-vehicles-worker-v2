@@ -96,6 +96,9 @@ def http_response(message, process_id, status=400):
     else:
         ko_count += 1
         body = {"message": f"{message} [{process_id}]", "code": status}
+        log_process(f"Response: {message}", process_id)
+
+    log_end_process(process_id)
 
     return JSONResponse(
         status_code=status,
@@ -128,10 +131,7 @@ async def fetch(request: Request):
         force_debug = payload.get("debug", False)
 
         if not url or not email or not password:
-            message = "Missing required params"
-            log_process(f"Response: {message}", process_id)
-            log_end_process(process_id)
-            return http_response(message, process_id)
+            return http_response("Missing required params", process_id)
 
         async with browser_lock:
             log_start_context(process_id)
@@ -216,8 +216,6 @@ async def fetch(request: Request):
             await context.close()
             log_end_context(process_id)
 
-            log_end_process(process_id)
-
             if captured_code:
                 return http_response(captured_code, process_id, 200)
 
@@ -228,8 +226,6 @@ async def fetch(request: Request):
         if context:
             await context.close()
             log_end_context(process_id)
-
-        log_end_process(process_id)
 
         if captured_code:
             return http_response(captured_code, process_id, 200)
