@@ -87,7 +87,7 @@ async def shutdown():
         await playwright.stop()
     log_end_browser()
 
-def http_response(message, status=400):
+def http_response(message, process_id, status=400):
     global ok_count, ko_count
 
     if status == 200:
@@ -131,7 +131,7 @@ async def fetch(request: Request):
             message = "Missing required params"
             log_process(f"Response: {message}", process_id)
             log_end_process(process_id)
-            return http_response(message)
+            return http_response(message, process_id)
 
         async with browser_lock:
             log_start_context(process_id)
@@ -219,9 +219,9 @@ async def fetch(request: Request):
             log_end_process(process_id)
 
             if captured_code:
-                return http_response(captured_code, 200)
+                return http_response(captured_code, process_id, 200)
 
-            return http_response("Code not found")
+            return http_response("Code not found", process_id)
 
     except Exception as e:
         log_process(f"Error: {e}", process_id, True)
@@ -232,6 +232,6 @@ async def fetch(request: Request):
         log_end_process(process_id)
 
         if captured_code:
-            return http_response(captured_code, 200)
+            return http_response(captured_code, process_id, 200)
 
-        return http_response(str(e))
+        return http_response(str(e), process_id)
