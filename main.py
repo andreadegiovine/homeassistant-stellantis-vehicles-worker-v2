@@ -273,6 +273,5 @@ async def healthcheck():
     log_end_process(process_id)
 
     return {
-        "status": "ok",
-        "browser_id": browser_process_id
+        "status": "ok"
     }
