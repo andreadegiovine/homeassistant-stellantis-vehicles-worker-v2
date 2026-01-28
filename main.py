@@ -55,8 +55,7 @@ def log_end_context(process_id):
     if context_start:
         log_process(f"Context end: {time.perf_counter() - context_start:.2f}s", process_id)
 
-@app.on_event("startup")
-async def startup():
+async def start_browser():
     global playwright, browser
     playwright = await async_playwright().start()
     browser = await playwright.chromium.launch(
@@ -77,6 +76,11 @@ async def startup():
         ],
     )
     log_start_browser()
+
+@app.on_event("startup")
+async def startup():
+    async with browser_lock:
+        await start_browser()
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -109,7 +113,6 @@ def http_response(message, process_id, status=400):
             "Access-Control-Allow-Headers": "Content-Type",
         }
     )
-
 
 @app.post("/")
 async def fetch(request: Request):
@@ -231,3 +234,45 @@ async def fetch(request: Request):
             return http_response(captured_code, process_id, 200)
 
         return http_response(str(e), process_id)
+
+@app.get("/health")
+async def healthcheck():
+    global playwright, browser
+
+    process_id = uuid.uuid4().hex[:8]
+
+    log_start_process(process_id)
+
+    async with browser_lock:
+        log_process("Check browser", process_id,True)
+        try:
+            context = await asyncio.wait_for(
+                browser.new_context(),
+                timeout=10000
+            )
+            page = await context.new_page()
+            await page.goto("about:blank", timeout=10000)
+            await context.close()
+
+        except Exception as e:
+            log_process(f"Restarting browser: {e}", process_id,True)
+            try:
+                if browser:
+                    await browser.close()
+            except Exception:
+                pass
+
+            try:
+                if playwright:
+                    await playwright.stop()
+            except Exception:
+                pass
+
+            await start_browser()
+
+    log_end_process(process_id)
+
+    return {
+        "status": "ok",
+        "browser_id": browser_process_id
+    }
