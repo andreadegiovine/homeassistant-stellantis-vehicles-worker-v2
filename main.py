@@ -1,11 +1,16 @@
 import time
 import asyncio
+import logging
+from urllib.parse import parse_qs, urlparse
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 import uuid
 
 app = FastAPI()
+logger = logging.getLogger("stellantis_worker")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 browser_process_id = None
 process_start = None
@@ -19,6 +24,69 @@ ko_count = 0
 playwright = None
 browser = None
 browser_lock = asyncio.Lock()
+
+EMAIL_SELECTORS = [
+    '#gigya-login-form input[name="username"]',
+    'input[name="username"]',
+    'input[name="loginID"]',
+    'input[name="email"]',
+    'input[type="email"]',
+]
+PASSWORD_SELECTORS = [
+    '#gigya-login-form input[name="password"]',
+    'input[name="password"]',
+    'input[type="password"]',
+]
+LOGIN_BUTTON_SELECTORS = [
+    '#gigya-login-form input[type="submit"]',
+    '#gigya-login-form button[type="submit"]',
+    'input[type="submit"]',
+    'button[type="submit"]',
+]
+AUTHORIZE_BUTTON_SELECTORS = [
+    "#consentbutton",
+    '#cvs_from input[type="submit"]',
+    '#cvs_from button[type="submit"]',
+    '#cvs_form input[type="submit"]',
+    '#cvs_form button[type="submit"]',
+    'form input[type="submit"]',
+    'form button[type="submit"]',
+    'button[type="submit"]',
+]
+COOKIE_BUTTON_SELECTORS = [
+    '#onetrust-accept-btn-handler',
+    'button:has-text("Accept")',
+    'button:has-text("Aceptar")',
+    'button:has-text("Aceitar")',
+    'button:has-text("Accepter")',
+    'button:has-text("Accetta")',
+    'button:has-text("OK")',
+]
+
+
+def extract_code(raw_url):
+    parsed = urlparse(raw_url)
+    if parsed.scheme in {"http", "https"}:
+        return None
+    if parsed.netloc != "oauth2redirect" and not parsed.path.startswith("/oauth2redirect"):
+        return None
+    query = parse_qs(parsed.query)
+    code_values = query.get("code")
+    if code_values:
+        return code_values[0]
+    return None
+
+
+def redacted_url(raw_url):
+    if "?" not in raw_url:
+        return raw_url
+    return raw_url.split("?", 1)[0] + "?..."
+
+
+def redact_text(text, email=None):
+    if email:
+        text = text.replace(email, "<email>")
+    return text[:1200]
 
 def log_process(message, process_id, force=force_debug):
     if force:
@@ -114,6 +182,79 @@ def http_response(message, process_id, status=400):
         }
     )
 
+
+async def click_optional(page, selectors, timeout_ms=1500):
+    for selector in selectors:
+        locator = page.locator(selector).first
+        try:
+            await locator.click(timeout=timeout_ms)
+            return
+        except Exception:
+            continue
+
+
+async def wait_visible(page, selectors, timeout_ms):
+    last_error = None
+    per_selector_timeout = max(1500, min(timeout_ms, 10000))
+    for selector in selectors:
+        locator = page.locator(selector).first
+        try:
+            await locator.wait_for(state="visible", timeout=per_selector_timeout)
+            return locator
+        except Exception as exc:
+            last_error = exc
+            continue
+    raise TimeoutError(f"No visible selector found: {selectors}") from last_error
+
+
+async def save_debug_artifacts(page, process_id, stage):
+    safe_stage = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in stage)
+    try:
+        await page.screenshot(path=f"/tmp/stellantis-{process_id}-{safe_stage}.png", full_page=True)
+        with open(f"/tmp/stellantis-{process_id}-{safe_stage}.html", "w", encoding="utf-8") as handle:
+            handle.write(await page.content())
+    except Exception:
+        logger.exception("[%s] failed saving debug artifacts", process_id)
+
+
+async def submit_authorize(page, timeout_ms):
+    try:
+        button = await wait_visible(page, AUTHORIZE_BUTTON_SELECTORS, timeout_ms)
+        await button.click()
+        return "clicked_visible_button"
+    except Exception:
+        submitted = await page.evaluate(
+            """() => {
+                const form = document.querySelector(
+                    '#cvs_from, #cvs_form, form[action*="/oauth2/authorize"], form'
+                );
+                if (!form) return false;
+                if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit();
+                } else {
+                    HTMLFormElement.prototype.submit.call(form);
+                }
+                return true;
+            }"""
+        )
+        if submitted:
+            return "submitted_form"
+        raise
+
+
+async def wait_for_code(captured, page, timeout_ms):
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        if captured["code"]:
+            return captured["code"]
+        code = extract_code(page.url)
+        if code:
+            captured["code"] = code
+            return code
+        await asyncio.sleep(0.2)
+    return None
+
+
 @app.post("/")
 async def fetch(request: Request):
     global force_debug
@@ -122,15 +263,17 @@ async def fetch(request: Request):
 
     log_start_process(process_id)
     context = None
-    captured_code = None
+    page = None
+    email = None
+    captured = {"code": None}
 
     try:
         payload = await request.json()
         url = payload.get("url")
         email = payload.get("email")
         password = payload.get("password")
-        timeout_page = payload.get("timeout_page", 50000)
-        timeout_input = payload.get("timeout_input", 50000)
+        timeout_page = int(payload.get("timeout_page", 90000))
+        timeout_input = int(payload.get("timeout_input", 90000))
         force_debug = payload.get("debug", False)
 
         if not url or not email or not password:
@@ -148,6 +291,7 @@ async def fetch(request: Request):
             )
 
             page = await context.new_page()
+            page.set_default_timeout(timeout_input)
 
             #await page.route("**/*", lambda route, request: (
                 #route.abort()
@@ -165,75 +309,89 @@ async def fetch(request: Request):
                 #else route.continue_()
             #))
 
-            async def on_request_failed(req):
-                nonlocal captured_code
-                if req.url.startswith("mym"):
-                    try:
-                        query = req.url.split("?", 1)[1]
-                        params = dict(p.split("=") for p in query.split("&"))
-                        code = params.get("code")
-                        if code:
-                            captured_code = code
-                            log_process("Code captured!", process_id)
-                    except Exception as e:
-                        log_process(f"URL parse error: {e}", process_id)
+            def maybe_capture(raw_url):
+                code = extract_code(raw_url)
+                if code:
+                    captured["code"] = code
+                    log_process("Code captured!", process_id, True)
+                elif force_debug:
+                    log_process(f"Navigation/request: {redacted_url(raw_url)}", process_id, True)
 
-            page.on("requestfailed", on_request_failed)
+            page.on("request", lambda req: maybe_capture(req.url))
+            page.on("requestfailed", lambda req: maybe_capture(req.url))
+            page.on("framenavigated", lambda frame: maybe_capture(frame.url))
 
-            log_process(f"Navigating to login: {url}", process_id)
+            log_process(f"Navigating to login: {redacted_url(url)}", process_id)
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout_page)
-
-            SELECTORS = {
-                "email": '#gigya-login-form input[name="username"]',
-                "password": '#gigya-login-form input[name="password"]',
-                "submit": '#gigya-login-form input[type="submit"]',
-                "authorize": '#cvs_from input[type="submit"]',
-            }
+            await click_optional(page, COOKIE_BUTTON_SELECTORS)
 
             log_process("Waiting for login form...", process_id)
-            await page.wait_for_selector(SELECTORS["email"], timeout=timeout_input)
-            await page.wait_for_selector(SELECTORS["password"], timeout=timeout_input)
+            email_input = await wait_visible(page, EMAIL_SELECTORS, timeout_input)
+            password_input = await wait_visible(page, PASSWORD_SELECTORS, timeout_input)
 
             log_process("Filling credentials...", process_id)
-            await page.type(SELECTORS["email"], email, delay=50)
-            await page.type(SELECTORS["password"], password, delay=50)
+            await email_input.fill(email)
+            await password_input.fill(password)
 
             log_process("Submitting login form...", process_id)
-            await page.click(SELECTORS["submit"])
+            login_button = await wait_visible(page, LOGIN_BUTTON_SELECTORS, timeout_input)
+            await login_button.click()
 
             log_process("Waiting for redirects...", process_id)
-            await page.wait_for_load_state("domcontentloaded", timeout=timeout_page)
+            try:
+                await page.wait_for_load_state("domcontentloaded", timeout=timeout_page)
+            except PlaywrightTimeoutError:
+                if not captured["code"]:
+                    raise
+
+            code = await wait_for_code(captured, page, 2500)
+            if code:
+                return http_response(code, process_id, 200)
 
             log_process("Waiting for confirm form...", process_id)
-            await page.wait_for_selector(SELECTORS["authorize"], timeout=timeout_input)
-
-            log_process("Submitting confirm form...", process_id)
-            await page.click(SELECTORS["authorize"])
+            action = await submit_authorize(page, timeout_input)
+            log_process(f"Confirm form submitted via {action}", process_id)
 
             log_process("Waiting for code capture...", process_id)
-            await asyncio.wait_for(
-                asyncio.to_thread(lambda: captured_code),
-                timeout=timeout_page / 1000
-            )
+            code = await wait_for_code(captured, page, timeout_page)
 
-            await context.close()
-            log_end_context(process_id)
+            if code:
+                return http_response(code, process_id, 200)
 
-            if captured_code:
-                return http_response(captured_code, process_id, 200)
-
+            await save_debug_artifacts(page, process_id, "missing-code")
+            try:
+                logger.warning(
+                    "[%s] code not found current=%s body=%s",
+                    process_id,
+                    redacted_url(page.url),
+                    redact_text(await page.locator("body").inner_text(timeout=5000), email),
+                )
+            except Exception:
+                logger.exception("[%s] failed reading page body", process_id)
             return http_response("Code not found", process_id)
 
     except Exception as e:
         log_process(f"Error: {e}", process_id, True)
+        if captured["code"]:
+            return http_response(captured["code"], process_id, 200)
+
+        if page:
+            try:
+                await save_debug_artifacts(page, process_id, "exception")
+                logger.warning(
+                    "[%s] exception current=%s body=%s",
+                    process_id,
+                    redacted_url(page.url),
+                    redact_text(await page.locator("body").inner_text(timeout=5000), email),
+                )
+            except Exception:
+                pass
+
+        return http_response(str(e), process_id)
+    finally:
         if context:
             await context.close()
             log_end_context(process_id)
-
-        if captured_code:
-            return http_response(captured_code, process_id, 200)
-
-        return http_response(str(e), process_id)
 
 @app.get("/health")
 async def healthcheck():
