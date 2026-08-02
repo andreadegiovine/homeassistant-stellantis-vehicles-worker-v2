@@ -204,11 +204,18 @@ async def fetch(request: Request):
             log_process("Waiting for redirects...", process_id)
             await page.wait_for_load_state("domcontentloaded", timeout=timeout_page)
 
-            log_process("Waiting for confirm form...", process_id)
-            await page.wait_for_selector(SELECTORS["authorize"], timeout=timeout_input)
-
-            log_process("Submitting confirm form...", process_id)
-            await page.click(SELECTORS["authorize"])
+            # The consent screen is optional: if the account already granted
+            # consent (e.g. on a repeat login), Stellantis redirects straight
+            # through and this selector never appears. Wait briefly, and if
+            # it doesn't show up, fall through to waiting for the code
+            # capture instead of hanging for the full timeout_input.
+            try:
+                log_process("Waiting for confirm form...", process_id)
+                await page.wait_for_selector(SELECTORS["authorize"], timeout=8000)
+                log_process("Submitting confirm form...", process_id)
+                await page.click(SELECTORS["authorize"])
+            except Exception:
+                log_process("No confirm form appeared, continuing...", process_id)
 
             log_process("Waiting for code capture...", process_id)
             await asyncio.wait_for(
