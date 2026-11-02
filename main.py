@@ -91,6 +91,24 @@ async def shutdown():
         await playwright.stop()
     log_end_browser()
 
+async def fill_credentials(page, selectors, email, password, timeout_ms):
+    """Gigya re-renders its login form and can wipe the values right after they are set."""
+    deadline = time.monotonic() + timeout_ms / 1000
+
+    while time.monotonic() < deadline:
+        await page.fill(selectors["email"], email)
+        await page.fill(selectors["password"], password)
+
+        if (
+            await page.input_value(selectors["email"]) == email
+            and await page.input_value(selectors["password"]) == password
+        ):
+            return
+
+        await asyncio.sleep(0.5)
+
+    raise TimeoutError("Login fields keep being cleared")
+
 def http_response(message, process_id, status=400):
     global ok_count, ko_count
 
@@ -195,8 +213,7 @@ async def fetch(request: Request):
             await page.wait_for_selector(SELECTORS["password"], timeout=timeout_input)
 
             log_process("Filling credentials...", process_id)
-            await page.type(SELECTORS["email"], email, delay=50)
-            await page.type(SELECTORS["password"], password, delay=50)
+            await fill_credentials(page, SELECTORS, email, password, timeout_input)
 
             log_process("Submitting login form...", process_id)
             await page.click(SELECTORS["submit"])
